@@ -1,0 +1,71 @@
+version: "3"
+services:
+  redis-master:
+    image: redis
+    ports:
+      - "6379:6379"
+    restart: always
+  redis-slave:
+    image: redis
+    command: redis-server --slaveof master 6379
+    restart: always
+    links:
+      - redis-master:master
+  sentinel:
+    build: ./deployment/sentinel
+    restart: always
+    links:
+      - redis-master:redis-master
+      - redis-slave
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_DB: demo
+      POSTGRES_USER: gwjrl
+      POSTGRES_PASSWORD: 123456
+    volumes:
+      - ./deployment/postgresql/data:/var/lib/posqtgresql/data
+    ports:
+      - "5433:5432"
+    restart: always
+  web:
+    build: .
+    ports:
+    - "8000"
+    expose:
+      - "8000"
+    volumes:
+      - .:application
+      - ./log:/tmp
+      - ./migrations:/usr/src/app/migrations
+    command: bash start.sh
+    links:
+      - db
+      - sentinel
+      - redis-master
+    depends_on:
+      - db
+      - sentinel
+      - redis-master
+    restart: always
+    networks:
+      - default
+  nginx:
+    build: deployment/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./collect_static:/usr/share/nginx/html/static
+      - ./media:/usr/share/nginx/html/media
+      - ./deployment/nginx/ssl:/usr/share/nginx/ssl
+    links:
+      - web
+    depends_on:
+      - web
+    restart: always
+    networks:
+      - default
+networks:
+  default:
+    driver: bridge
