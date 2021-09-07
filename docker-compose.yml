@@ -176,6 +176,31 @@ services:
       args:
         INSTALL_DEV: ${INSTALL_DEV-false}
 
+  celerybeat:
+    image: '${DOCKER_IMAGE_CELERYBEAT?Variable not set}:${TAG-latest}'
+    volumes:
+      - ./backend/app:/app
+    depends_on:
+      - db
+      - queue
+      - celeryworker
+    links:
+      - db
+      - queue
+    env_file:
+      - .env
+    environment:
+      - SERVER_NAME=${DOMAIN?Variable not set}
+      - SERVER_HOST=https://${DOMAIN?Variable not set}
+      # Allow explicit env var override for tests
+      - SMTP_HOST=${SMTP_HOST?Variable not set}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: celerybeat
+      args:
+        INSTALL_DEV: ${INSTALL_DEV-false}
+
 volumes:
   app-db-data:
 

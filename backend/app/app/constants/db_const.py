@@ -37,3 +37,6 @@ class DBConst(Const):
     REJECT = '0'     # 驳回
     REVIEWING = '1'  # 审核中
     PASS = '2'       # 通过
+
+    # -------------- 用户反馈 feedback 相关 --------------
+    PRODUCT_SUGGESTION = '0'  # 产品建议

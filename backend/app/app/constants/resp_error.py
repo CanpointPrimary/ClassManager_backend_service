@@ -66,3 +66,21 @@ class RespError(Const):
         400, 'Too many apply in class', '同一班级申请数量超过上限'
     )
     INCORRECT_CAPTCHA = Response(400, 'Incorrect captcha', '验证码错误')
+    AUTHORIZATION_DENIED = Response(403, 'Authorization denied', '权限不足')
+    INVALID_INVITATION = Response(400, 'Invalid invitation info', '无效的邀请信息')
+    GEN_WXACODE_FAILED = Response(500, 'Generate wxacode failed', '小程序码生成失败')
+    GEN_WX_URL_LINK_FAILED = Response(
+        500, 'Generate wx url link failed', '小程序链接生成失败'
+    )
+    FILE_NUMBER_OUT_OF_LIMIT = Response(
+        400, 'Number of upload files out of limit', '上传文件数量超出限制'
+    )
+    FILESIZE_OUT_OF_LIMIT = Response(
+        413, 'Size of upload file out of limit', '上传文件大小超出限制'
+    )
+    INVALID_UPLOADED_FILETYPE = Response(
+        400, 'Invalid uploaded file type', '上传文件类型非法'
+    )
+    IN_EXISTENCE_UPLOADED_FILE = Response(
+        400, 'Uploaded file not found', '未找到上传文件'
+    )

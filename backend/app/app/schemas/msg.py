@@ -5,19 +5,20 @@
 from pydantic import BaseModel
 
 
-class Msg(BaseModel):
-    msg: str
+class BaseMsg(BaseModel):
+    errcode: str = None
+    errmsg: str = None
 
 
-class Code2SessionMsg(BaseModel):
+class Code2SessionMsg(BaseMsg):
     session_key: str = None
     openid: str = None
-    errcode: str = None
-    errmsg: str = None
 
 
-class WXAccessTokenMsg(BaseModel):
+class WXAccessTokenMsg(BaseMsg):
     access_token: str = None
     expires_in: int = None
-    errcode: str = None
-    errmsg: str = None
+
+
+class WXUrlLinkMsg(BaseMsg):
+    url_link: str = None

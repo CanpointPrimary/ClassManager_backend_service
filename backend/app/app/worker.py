@@ -1,4 +1,5 @@
 import json
+import os
 import traceback
 from typing import Any
 
@@ -25,6 +26,8 @@ from app.db.redis import redis
 client_sentry = Client(settings.SENTRY_DSN)
 
 logger = get_task_logger(__name__)
+if os.path.exists('celerybeat-schedule'):
+    os.remove('celerybeat-schedule')
 
 
 @celery_app.task()

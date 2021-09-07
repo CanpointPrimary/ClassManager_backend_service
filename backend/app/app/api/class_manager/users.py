@@ -9,7 +9,7 @@
 
 import secrets
 
-from fastapi import APIRouter, Depends, Body
+from fastapi import APIRouter, Body, Depends, Path, Query
 from fastapi.responses import JSONResponse
 from redis import Redis
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from app.api import deps
 from app.constants import RespError
 from app.core.celery_app import celery_app
 from app.core.config import settings
+from app.core.security import AESCrypto, WXBizDataCrypt
 from app.exceptions import BizHTTPException
 
 
@@ -31,7 +32,7 @@ TELEPHONE_REGEX = r'^1[358]\d{9}$|^147\d{8}$|^179\d{8}$'
 def get_user_basic_info(
     db: Session = Depends(deps.get_db),
     token: schemas.TokenPayload = Depends(deps.get_activated),
-):
+) -> JSONResponse:
     """
     查询用户在 当前所在班级的 信息
     """
@@ -45,7 +46,8 @@ def send_sms_captcha(
     request_id: int = Depends(deps.get_request_id),
     _: schemas.TokenPayload = Depends(deps.get_activated),
     redis: Redis = Depends(deps.get_redis),
-    telephone: str = Body(..., regex=TELEPHONE_REGEX, description='电话号码'),
+    telephone: str = Body(..., regex=TELEPHONE_REGEX,
+                          embed=True, description='电话号码'),
 ) -> JSONResponse:
     """
     通过短信发送手机号验证码
@@ -72,4 +74,94 @@ def send_sms_captcha(
     redis.setex(
         f'sms_captcha_{telephone}', settings.SMS_CAPTCHA_EXPIRE_SECONDS, captcha
     )
-    return JSONResponse()
+    return schemas.Response()
+
+
+@router.get('/telephone', summary='获取用户手机号')
+def get_user_telephone(
+    token: schemas.TokenPayload = Depends(deps.get_activated),
+    encrypt_data: str = Query(..., description='加密数据'),
+    iv: str = Query(..., description='加密向量'),
+) -> JSONResponse:
+    """
+    获取用户手机号
+    """
+    session_key = AESCrypto.decrypt(token.sub_sign,
+                                    settings.AES_KEY, settings.AES_IV)
+    pc = WXBizDataCrypt(settings.MINI_PROGRAM_APP_ID, session_key)
+    decrypted = pc.decrypt(encrypt_data, iv)
+    return schemas.Response(data=decrypted)
+
+
+@router.put('/classes/{member_id}', summary='用户切换所在班级')
+def switch_class(
+    token: schemas.TokenPayload = Depends(deps.get_activated),
+    db: Session = Depends(deps.get_db),
+    member_id: int = Path(..., description='目标班级的成员id'),
+) -> JSONResponse:
+    """
+    用户切换所在班级
+    """
+    if member_id == token.user.current_member_id:
+        return schemas.Response()
+    user_id = int(token.sub)
+    if not crud.class_member.member_exists(db, member_id, user_id):
+        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+    crud.user.update_current_member(db, user_id, member_id)
+    return schemas.Response()
+
+
+@router.get('/classes/', summary='查询用户班级列表')
+def get_already_in_class_list(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_activated),
+    page: int = Query(..., gt=0, description='页码'),
+    page_size: int = Query(..., gt=0, le=100, description='页数据量'),
+) -> JSONResponse:
+    """
+    查询用户班级列表
+    """
+    user_id = int(token.sub)
+    result_list = crud.class_member.get_class_list(db, user_id, page, page_size)
+    resp_data = deps.handle_paging_data(result_list, page, page_size)
+    return schemas.Response(data=resp_data)
+
+
+@router.get('/classes/', summary='查询审核中的班级列表')
+def get_reviewing_class_list(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_activated),
+    page: int = Query(..., gt=0, description='页码'),
+    page_size: int = Query(..., gt=0, le=100, description='页数据量'),
+) -> JSONResponse:
+    """
+    查询审核中的班级列表
+    """
+    user_id = int(token.sub)
+    result_list = crud.apply4class.get_reviewing_list(
+        db, user_id, page, page_size
+    )
+    resp_data = deps.handle_paging_data(result_list, page, page_size)
+    return schemas.Response(data=resp_data)
+
+
+@router.get('/classes/class_members', summary='查询班级成员信息')
+def get_class_members_list(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_teacher),
+) -> JSONResponse:
+    """
+    查询班级成员信息
+    """
+    if not token.user.current_member_id:
+        return schemas.Response(data=None)
+    cur_member = crud.class_member.get_cur_class_id(
+        db, token.user.current_member_id
+    )
+    if not cur_member:
+        return schemas.Response(data=None)
+    class_id = cur_member.class_id
+    teacher_list = crud.class_member.get_class_teachers(db, class_id)
+    student_list = crud.class_member.get_class_students(db, class_id)
+    data = {'teachers': teacher_list, 'students': student_list}
+    return schemas.Response(data=data)

@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     WX_ACCESS_TOKEN_EXPIRES: int
     WX_ACCESS_TOKEN_UPDATE_OFFSET: int
     WXACODE_GET_UNLIMITED_URL: HttpUrl
+    WX_GET_URL_LINK_URL: HttpUrl
 
     LOG_LEVEL: str
     CELERY_BROKER_URL: str

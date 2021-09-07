@@ -7,7 +7,7 @@
 CRUD模块 - 学校相关 非复杂业务CRUD
 """
 
-from typing import List
+from typing import List, Tuple
 
 from sqlalchemy.engine.row import Row
 from sqlalchemy.orm import Session
@@ -15,7 +15,7 @@ from sqlalchemy.sql import and_, false, func, null
 
 from app.crud.base import CRUDBase
 from app.constants import DBConst
-from app.models import Apply4Class, Class, ClassMember, Subject
+from app.models import Apply4Class, Class, ClassMember, Subject, School
 
 
 class CRUDClass(CRUDBase[Class, Class, Class]):
@@ -136,22 +136,86 @@ class CRUDClassMember(CRUDBase[ClassMember, ClassMember, ClassMember]):
             .first()
         )
 
-    def get_class_members(self, db: Session, user_id: int) -> List[Row]:
+    def get_class_list(
+        self, db: Session, user_id: int, page: int, page_size: int
+    ) -> List[Tuple[Row, int]]:
         """
-        根据 user_id 查询该用户的所有作为班级成员的信息
+        根据用户id查询其所在班级列表
         """
         return (
-            db.query(self.model.id, self.model.class_id, self.model.name,
-                     self.model.member_role, self.model.family_relation,
-                     Class.class_, Class.grade)
-            .join(Class, self.model.class_id == Class.id)
+            db.query(func.count(self.model.id).over().label('total'),
+                     self.model.id, self.model.class_id.label('class_code'),
+                     self.model.name, self.model.member_role,
+                     self.model.family_relation, Class.class_, Class.grade,
+                     School.id.label('school_id'),
+                     School.name.label('school_name'))
+            .outerjoin(Class, ClassMember.class_id == Class.id)
+            .outerjoin(School, School.id == Class.school_id)
             .filter(
                 and_(
                     ClassMember.user_id == user_id,
                     ClassMember.is_delete == false(),
-                    Class.is_delete == false()
+                    Class.is_delete == false(),
                 )
             )
+            .order_by(ClassMember.create_time.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+
+    def get_member_role(self, db: Session, member_id: int) -> Row:
+        """
+        查询当前班级成员的角色
+        """
+        return (
+            db.query(self.model.member_role)
+            .filter(ClassMember.id == member_id)
+            .first()
+        )
+
+    def get_cur_class_id(self, db: Session, member_id: int) -> int:
+        """
+        根据 member_id 查询成员当前所在班的 class_id
+        """
+        return (
+            db.query(self.model.class_id)
+            .filter(ClassMember.member_id == member_id)
+            .first()
+        )
+
+    def get_class_teachers(self, db: Session, class_id: int) -> List[Row]:
+        """
+        根据 class_id 查询该班所有教师的信息
+        """
+        return (
+            db.query(self.model.id, self.model.class_id, self.model.name,
+                     self.model.member_role, self.model.subject_id)
+            .filter(
+                and_(
+                    ClassMember.class_id == class_id,
+                    ClassMember.member_role != DBConst.STUDENT,
+                    ClassMember.is_delete == false(),
+                )
+            )
+            .order_by(ClassMember.member_role.desc())
+            .all()
+        )
+
+    def get_class_students(self, db: Session, class_id: int) -> List[Row]:
+        """
+        根据 class_id 查询该班所有学生的信息
+        """
+        return (
+            db.query(self.model.id, self.model.name, self.model.family_relation)
+            .filter(
+                and_(
+                    ClassMember.class_id == class_id,
+                    ClassMember.member_role == DBConst.STUDENT,
+                    ClassMember.is_delete == false(),
+                )
+            )
+            .order_by(ClassMember.create_time.desc())
             .all()
         )
 
@@ -175,11 +239,52 @@ class CRUDClassMember(CRUDBase[ClassMember, ClassMember, ClassMember]):
             .first()
         )
 
+    def member_exists(self, db: Session, member_id: int, user_id: int) -> int:
+        """
+        查询班级成员是否存在
+        """
+        return (
+            db.query(func.count(self.model.id))
+            .filter(
+                and_(
+                    ClassMember.id == member_id,
+                    ClassMember.user_id == user_id,
+                    ClassMember.is_delete == false(),
+                )
+            )
+            .scalar()
+        )
+
 
 class CRUDApply4Class(CRUDBase[Apply4Class, Apply4Class, Apply4Class]):
     """
     班级成员相关CRUD  模型类: ClassMember  数据表: class_member
     """
+    def get_reviewing_list(
+        self, db: Session, user_id: int, page: int, page_size: int
+    ) -> List[Row]:
+        """
+        根据用户id查询审核未通过的入班申请
+        """
+        return (
+            db.query(func.count(self.model.id).over().label('total'),
+                     self.model.id, self.model.name, self.model.family_relation,
+                     self.model.subject_id, self.model.result,
+                     Class.class_.label('class'), Class.grade)
+            .join(Class, Apply4Class.class_id == Class.id)
+            .filter(
+                and_(
+                    Apply4Class.user_id == user_id,
+                    Apply4Class.result != DBConst.PASS,
+                    Class.is_delete == false(),
+                )
+            )
+            .order_by(Apply4Class.create_time.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+
     def teacher_apply_exists(
         self, db: Session, user_id: int, class_id: int
     ) -> int:

@@ -5,6 +5,7 @@
 
 from typing import Any
 
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 
@@ -15,7 +16,7 @@ class MakeResponse(object):
     ) -> JSONResponse:
         content = {'statement': statement, 'message': message}
         if data:
-            content['data'] = data
+            content['data'] = jsonable_encoder(data)
         return JSONResponse(content, status_code=status_code, headers=headers)
 
 
