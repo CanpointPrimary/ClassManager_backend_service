@@ -7,9 +7,10 @@
 路径函数 - 页面相关
 """
 
-from typing import Any
+from typing import List
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
@@ -23,9 +24,7 @@ HOMEPAGE_MENU_NUMBER_LIMIT = 8
 
 
 @router.get('/startup_pages', summary='获取启动页图片', description='获取启动页图片')
-def get_startup_page(
-    db: Session = Depends(deps.get_db),
-) -> Any:
+def get_startup_page(db: Session = Depends(deps.get_db)) -> Row:
     """
     获取启用中的启动页图片路径
     """
@@ -36,7 +35,7 @@ def get_startup_page(
 def get_guidance_pages(
     db: Session = Depends(deps.get_db),
     limit: int = Query(ENTRANCE_PAGE_LIMIT, description='数量'),
-) -> Any:
+) -> List[Row]:
     """
     获取启用中的启动页图片，图片数量有限制
     """
@@ -48,13 +47,12 @@ def get_guidance_pages(
 @router.get('/homepage_menus', summary='获取首页菜单', description='获取首页菜单')
 def get_homepage_menus(
     db: Session = Depends(deps.get_db),
-    _: schemas.TokenPayload = Depends(deps.get_activated),
+    _: schemas.TokenPayload = Depends(deps.get_token),
     limit: int = Query(HOMEPAGE_MENU_NUMBER_LIMIT, description='数量'),
-) -> Any:
+) -> List[Row]:
     """
     获取首页菜单，有数量限制
     """
     if not limit or limit <= 0 or limit > HOMEPAGE_MENU_NUMBER_LIMIT:
         limit = HOMEPAGE_MENU_NUMBER_LIMIT
-    homepage_menus = crud.homepage_menu.get_activated(db, limit)
-    return homepage_menus
+    return crud.homepage_menu.get_activated(db, limit)

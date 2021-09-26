@@ -15,7 +15,6 @@ from app.models import HomepageMenu, EntrancePage
 
 from sqlalchemy.engine.row import Row
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import and_
 
 
 class CRUDHomepageMenu(CRUDBase[HomepageMenu, HomepageMenu, HomepageMenu]):
@@ -24,7 +23,7 @@ class CRUDHomepageMenu(CRUDBase[HomepageMenu, HomepageMenu, HomepageMenu]):
     模型类: HomepageMenu
     数据表: homepage_menu
     """
-    def get_activated(self, db: Session, limit: int = 8) -> List:
+    def get_activated(self, db: Session, limit: int = 8) -> List[Row]:
         """
         查询当前已启用的首页菜单
         """
@@ -44,17 +43,15 @@ class CRUDEntrancePage(CRUDBase[EntrancePage, EntrancePage, EntrancePage]):
     模型类: EntrancePage
     数据表: entrance_page
     """
-    def get_startup_activated(self, db: Session) -> EntrancePage:
+    def get_startup_activated(self, db: Session) -> Row:
         """
         查询当前已启用的启动页图片
         """
         return (
             db.query(self.model.src, self.model.desc, self.model.target)
             .filter(
-                and_(
-                    EntrancePage.type == DBConst.STARTUP,
-                    EntrancePage.status == DBConst.PIC_ACTIVATED,
-                )
+                EntrancePage.type == DBConst.STARTUP,
+                EntrancePage.status == DBConst.PIC_ACTIVATED,
             )
             .order_by(EntrancePage.id.desc())
             .first()
@@ -67,10 +64,8 @@ class CRUDEntrancePage(CRUDBase[EntrancePage, EntrancePage, EntrancePage]):
         return (
             db.query(self.model.id, self.model.src, self.model.desc)
             .filter(
-                and_(
-                    EntrancePage.type == DBConst.GUIDANCE,
-                    EntrancePage.status == DBConst.PIC_ACTIVATED,
-                )
+                EntrancePage.type == DBConst.GUIDANCE,
+                EntrancePage.status == DBConst.PIC_ACTIVATED,
             )
             .order_by(EntrancePage.id.desc())
             .limit(limit)

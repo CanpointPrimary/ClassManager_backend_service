@@ -81,6 +81,23 @@ class RespError(Const):
     INVALID_UPLOADED_FILETYPE = Response(
         400, 'Invalid uploaded file type', '上传文件类型非法'
     )
-    IN_EXISTENCE_UPLOADED_FILE = Response(
-        400, 'Uploaded file not found', '未找到上传文件'
+    UPLOADED_FILE_NOT_FOUND = Response(400, 'Upload file not found', '未找到上传文件')
+    INVALID_CLASS_CODE = Response(400, 'Class not exists', '无效的班级码')
+    INVALID_SUBJECT = Response(400, 'Subject not exists', '无效的学科')
+    INVALID_CLASS_APPLY = Response(400, 'Invalid class apply', '无效的入班申请')
+    INVALID_FAMILY_RELATION = Response(
+        400, 'Invalid family relation', '无效的亲属关系'
     )
+    HEADTEACHER_DELETE = Response(
+        400, 'Headteacher can not delete him/her self', '班主任不能从班级中删除自己'
+    )
+    DEPRECATED_API = Response(403, 'API deprecated', '废弃的接口')
+    DISABLED_CLASS_MEMBERSHIP = Response(
+        403, 'Disabled class membership', '当前班级成员身份已失效'
+    )
+    CLASS_MEMBER_NOT_FOUND = Response(
+        400, 'Class member not found', '找不到班级成员信息'
+    )
+    REVIEWED_APPLY = Response(400, 'Apply has been reviewed', '该申请已被审核')
+    GROUP_EXISTS = Response(400, 'Group already exists', '班级小组已存在')
+    GROUP_NOT_FOUND = Response(400, 'Group not found', '不存在的班级小组')

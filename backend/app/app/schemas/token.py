@@ -1,5 +1,3 @@
-from typing import Any
-
 from pydantic import BaseModel
 
 
@@ -14,4 +12,7 @@ class TokenPayload(BaseModel):
     sub: str
     flag: str
     sub_sign: str
-    user: Any = None
+    class_id: int = None
+    member_id: int = None
+    member_role: str = None
+    member_is_delete: int = None

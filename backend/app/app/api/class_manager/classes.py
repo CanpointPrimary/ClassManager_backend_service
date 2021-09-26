@@ -9,7 +9,7 @@
 
 import base64
 import json
-from typing import Any
+from typing import Any, List
 
 import requests
 from fastapi import APIRouter, Depends, Body, Path, Query
@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import ValidationError
 from redis import Redis
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 
@@ -25,7 +26,7 @@ from app.api import deps
 from app.constants import DBConst, RespError
 from app.core.config import settings
 from app.exceptions import BizHTTPException
-from app.models import Apply4Class, Class, ClassMember
+from app.models import Apply4Class, ClassMember, Group, GroupMember
 
 
 router = APIRouter()
@@ -58,19 +59,19 @@ def get_class_by_code(
     """
     class_ = crud.class_.class_exists(db, class_id=class_code)
     if not class_:
-        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+        raise BizHTTPException(*RespError.INVALID_CODE)
     return class_
 
 
 def get_subject(
     db: Session = Depends(deps.get_db),
     subject_id: int = Body(..., embed=True, description='任教科目'),
-):
+) -> int:
     """
     校验学科是否存在
     """
     if not crud.subject.subject_exists(db, subject_id):
-        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+        raise BizHTTPException(*RespError.INVALID_SUBJECT)
     return subject_id
 
 
@@ -82,11 +83,26 @@ def get_family_relation(
     校验亲属关系是否存在
     """
     if not crud.sys_config.family_relation_exists(db, family_relation):
-        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+        raise BizHTTPException(*RespError.INVALID_FAMILY_RELATION)
     return family_relation
 
 
-@router.post('/teachers/join_request', summary='提交教师端入班申请')
+def get_exists_apply(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_activated),
+    apply_id: int = Path(..., description='已提交的入班申请id'),
+) -> Row:
+    """
+    查询已提交的入班申请信息
+    """
+    user_id = int(token.sub)
+    apply = crud.apply4class.get_apply_by_id(db, user_id, apply_id)
+    if not apply:
+        raise BizHTTPException(*RespError.INVALID_CLASS_APPLY)
+    return apply
+
+
+@router.post('/teachers/join_requests', summary='提交教师端入班申请')
 def teacher_apply_into_class(
     db: Session = Depends(deps.get_db),
     token: schemas.TokenPayload = Depends(deps.get_activated),
@@ -95,6 +111,31 @@ def teacher_apply_into_class(
     telephone: str = Body(..., regex=TELEPHONE_REGEX, description='电话号码'),
     class_: Row = Depends(get_class_by_code),
     _: int = Depends(validate_sms_captcha),
+) -> JSONResponse:
+    """
+    提交教师入班申请
+    """
+    return teacher_join_class(db, token, name, subject_id, telephone, class_)
+
+
+@router.put('/teachers/join_requests/{apply_id}', summary='重新提交教师入班申请')
+def teacher_reapply_into_class(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_activated),
+    apply: Row = Depends(get_exists_apply),
+) -> JSONResponse:
+    """
+    重新提交教师入班申请
+    """
+    name = apply.name
+    telephone = apply.telephone
+    subject_id = get_subject(db, apply.subject_id)
+    class_ = get_class_by_code(db, apply.class_id)
+    return teacher_join_class(db, token, name, subject_id, telephone, class_)
+
+
+def teacher_join_class(
+    db, token, name, subject_id, telephone, class_
 ) -> JSONResponse:
     """
     提交教师端入班申请
@@ -110,17 +151,10 @@ def teacher_apply_into_class(
         )
     # 未在班的班主任直接入班
     if telephone == class_.contact:
-        headteacher = ClassMember(
-            class_id=class_.id,
-            user_id=user_id,
-            name=name,
-            member_role=DBConst.HEADTEACHER,
-            subject_id=subject_id,
-            telephone=telephone,
-        )
-        headteacher = crud.class_member.create(db, obj_in=headteacher)
-        if not token.user.current_member_id:
-            crud.user.update_current_member(db, user_id, headteacher.id)
+        headteacher = ClassMember(class_id=class_.id, user_id=user_id,
+                                  name=name, member_role=DBConst.HEADTEACHER,
+                                  subject_id=subject_id, telephone=telephone)
+        crud.class_member.create(db, obj_in=headteacher)
         return schemas.Response()
     # 检查老师是否已提交申请
     if crud.apply4class.teacher_apply_exists(db, user_id, class_.id):
@@ -137,42 +171,55 @@ def teacher_apply_into_class(
         )
     # 如果该班级不需要审核，直接入班
     if not class_.need_audit:
-        teacher = ClassMember(
-            class_id=class_.id,
-            user_id=user_id,
-            name=name,
-            member_role=DBConst.TEACHER,
-            subject_id=subject_id,
-            telephone=telephone,
-        )
-        teacher = crud.class_member.create(db, obj_in=teacher)
-        if not token.user.current_member_id:
-            crud.user.update_current_member(db, user_id, teacher.id)
+        teacher = ClassMember(class_id=class_.id, user_id=user_id, name=name,
+                              member_role=DBConst.TEACHER,
+                              subject_id=subject_id, telephone=telephone)
+        crud.class_member.create(db, obj_in=teacher)
         return schemas.Response()
     # 提交申请信息入库
-    apply = Apply4Class(
-        name=name,
-        user_id=user_id,
-        class_id=class_.id,
-        subject_id=subject_id,
-        telephone=telephone,
-    )
+    apply = Apply4Class(name=name, user_id=user_id, class_id=class_.id,
+                        subject_id=subject_id, telephone=telephone)
     crud.apply4class.create(db, obj_in=apply)
     return schemas.Response()
 
 
-@router.post('/students/join_request', summary='提交学生端入班申请')
+@router.post('/students/join_requests', summary='提交学生端入班申请')
 def student_apply_into_class(
     db: Session = Depends(deps.get_db),
     token: schemas.TokenPayload = Depends(deps.get_activated),
     name: str = Body(..., description='姓名'),
     family_relation: str = Depends(get_family_relation),
     telephone: str = Body(..., regex=TELEPHONE_REGEX, description='电话号码'),
-    class_: Class = Depends(get_class_by_code),
+    class_: Row = Depends(get_class_by_code),
     _: int = Depends(validate_sms_captcha),
 ) -> JSONResponse:
     """
-    提交学生端入班申请
+    提交学生入班申请
+    """
+    return student_into_class(db, token, name, family_relation, telephone, class_)
+
+
+@router.put('/students/join_requests/{apply_id}', summary='重新提交学生入班申请')
+def student_reapply_into_class(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_activated),
+    apply: Row = Depends(get_exists_apply),
+) -> JSONResponse:
+    """
+    重新提交学生入班申请
+    """
+    name = apply.name
+    telephone = apply.telephone
+    family_relation = get_family_relation(db, apply.family_relation)
+    class_ = get_class_by_code(db, apply.class_id)
+    return student_into_class(db, token, name, family_relation, telephone, class_)
+
+
+def student_into_class(
+    db, token, name, family_relation, telephone, class_
+) -> JSONResponse:
+    """
+    提交学生入班申请
     """
     user_id = int(token.sub)
     # 查询是否已在班
@@ -187,26 +234,15 @@ def student_apply_into_class(
         raise BizHTTPException(*RespError.TOO_MANY_APPLY)
     # 如果该班级不需要审核，直接入班
     if not class_.need_audit:
-        student = ClassMember(
-            class_id=class_.id,
-            user_id=user_id,
-            name=name,
-            member_role=DBConst.STUDENT,
-            family_relation=family_relation,
-            telephone=telephone,
-        )
-        student = crud.class_member.create(student)
-        if not token.user.current_member_id:
-            crud.user.update_current_member(db, user_id, student.id)
+        student = ClassMember(class_id=class_.id, user_id=user_id, name=name,
+                              member_role=DBConst.STUDENT,
+                              family_relation=family_relation,
+                              telephone=telephone)
+        crud.class_member.create(student)
         return schemas.Response()
     # 提交入班申请
-    apply = Apply4Class(
-        name=name,
-        user_id=user_id,
-        class_id=class_.id,
-        family_relation=family_relation,
-        telephone=telephone,
-    )
+    apply = Apply4Class(name=name, user_id=user_id, class_id=class_.id,
+                        family_relation=family_relation, telephone=telephone)
     crud.apply4class.create(db, obj_in=apply)
     return schemas.Response()
 
@@ -215,8 +251,9 @@ def student_apply_into_class(
 def get_class_id_by_telephone(
     db: Session = Depends(deps.get_db),
     _: schemas.TokenPayload = Depends(deps.get_activated),
-    telephone: str = Body(..., regex=TELEPHONE_REGEX,
-                          embed=True, description='电话号码'),
+    telephone: str = Body(
+        ..., regex=TELEPHONE_REGEX, embed=True, description='电话号码'
+    ),
 ) -> Any:
     """
     根据班主任的电话号码获取其班级的班级码
@@ -248,7 +285,7 @@ def get_invitation_links(
     生成邀请入班链接
     """
     error = None
-    cur_member_id = token.user.current_member_id
+    cur_member_id = token.member_id
     # 请求微信小程序链接
     wx_access_token = redis.get('wx_access_token')
     json_data = {
@@ -277,7 +314,7 @@ def get_invitation_wxacode(
     """
     生成邀请入班的小程序码
     """
-    cur_member_id = token.user.current_member_id
+    cur_member_id = token.member_id
     # 请求微信小程序码
     wx_access_token = redis.get('wx_access_token')
     json_data = {'scene': f'id={cur_member_id}', 'page': page}
@@ -292,8 +329,7 @@ def get_invitation_wxacode(
     return schemas.Response(data=base64.b64encode(resp.content).decode())
 
 
-@router.get('/invitor/{member_id}/invitation',
-            summary='根据邀请人id查询邀请入班信息')
+@router.get('/invitor/{member_id}/invitation', summary='根据邀请人id查询邀请入班信息')
 def get_invitation_info(
     db: Session = Depends(deps.get_db),
     _: schemas.TokenPayload = Depends(deps.get_activated),
@@ -303,7 +339,7 @@ def get_invitation_info(
     根据邀请人id查询邀请入班信息
     """
     # 邀请人所在班的 班级码、用户在班角色、班级所属学校、邀请人名称
-    cur_member = crud.class_member.get_current_class_member(db, member_id)
+    cur_member = crud.class_member.get_current_member(db, member_id)
     if not cur_member:
         raise BizHTTPException(*RespError.INVALID_INVITATION)
     if cur_member.member_role not in (DBConst.HEADTEACHER, DBConst.TEACHER):
@@ -316,3 +352,204 @@ def get_invitation_info(
         'class': cur_member['class'],
     }
     return schemas.Response(data=invitation_data)
+
+
+@router.put('/', summary='修改入班是否需要审核')
+def update_audit_need_for_class_joining(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_headteacher),
+    need_audit: bool = Body(..., embed=True, description='入班是否需要审核'),
+) -> JSONResponse:
+    """
+    修改入班是否需要审核
+    """
+    cur_member_id = token.member_id
+    crud.class_.update_audit_need_for_joining(db, cur_member_id, need_audit)
+    return schemas.Response()
+
+
+@router.delete('/class_members/{member_id}', summary='删除班级成员')
+def delete_class_member(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_class_member),
+    member_id: int = Path(..., description='班级成员id'),
+) -> JSONResponse:
+    """
+    删除班级成员
+    """
+    if token.member_role == DBConst.HEADTEACHER and member_id == token.member_id:
+        raise BizHTTPException(*RespError.HEADTEACHER_DELETE)
+    if token.member_role != DBConst.HEADTEACHER and member_id != token.member_id:
+        raise BizHTTPException(*RespError.AUTHORIZATION_DENIED)
+    crud.class_member.delete_member(db, member_id)
+    return schemas.Response()
+
+
+@router.put('/class_members/{member_id}', summary='修改班级成员信息')
+def update_member(
+    class_member: schemas.ClassMember,
+    db: Session = Depends(deps.get_class_member),
+    token: schemas.TokenPayload = Depends(deps.get_db),
+    member_id: int = Path(..., description='要修改的班级成员的成员id'),
+) -> JSONResponse:
+    if not class_member.subject_id and not class_member.family_relation:
+        raise BizHTTPException(*RespError.MISSING_PARAMETER)
+    # 如果用户不是班主任也不是修改自己信息
+    if token.member_role != DBConst.HEADTEACHER and member_id != token.member_id:
+        raise BizHTTPException(*RespError.AUTHORIZATION_DENIED)
+    target_member = crud.class_member.get_member_role(member_id)
+    if not target_member or target_member.is_delete:
+        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+    if (
+        target_member.member_role == DBConst.STUDENT
+        and not class_member.family_relation
+    ):
+        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+    if (
+        target_member.member_role != DBConst.STUDENT
+        and not class_member.subject_id
+    ):
+        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+    crud.class_member.update_member(db, member_id, class_member)
+    return schemas.Response()
+
+
+@router.get('/join_requests', summary='查询当前所在班级的入班审核记录')
+def get_join_requests(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_teacher),
+) -> JSONResponse:
+    """
+    查询当前所在班级的入班审核记录
+    """
+    apply_record = crud.apply4class.get_apply_records(db, token.class_id)
+    reviewing = [x for x in apply_record if x.result == DBConst.REVIEWING]
+    reviewed = [x for x in apply_record if x.result != DBConst.REVIEWING]
+    return schemas.Response(data={'reviewing': reviewing, 'reviewed': reviewed})
+
+
+@router.put('/join_requests/{apply_id}', summary='审核入班申请')
+def review_join_request(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_teacher),
+    apply_id: int = Path(..., description='入班申请id'),
+    passed: bool = Body(..., description='是否通过'),
+) -> JSONResponse:
+    """
+    审核入班申请
+    """
+    apply = crud.apply4class.is_apply_reviewing(db, apply_id, token.class_id)
+    if not apply:
+        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+    # 若申请结果不为 审核中 则返回 该申请已被审核
+    if apply.result != DBConst.REVIEWING:
+        raise BizHTTPException(*RespError.REVIEWED_APPLY)
+    result = DBConst.PASS if passed else DBConst.REJECT
+    crud.apply4class.update_apply_result(db, apply_id, token.member_id, result)
+    return schemas.Response()
+
+
+@router.post('/groups', summary='新建班级小组')
+def add_class_group(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_headteacher),
+    name: str = Body(..., min_length=1, max_length=10, description='小组名称'),
+    members: List[int] = Body(..., min_length=1, description='小组成员的成员id列表'),
+) -> JSONResponse:
+    # 校验当前班级是否已存在同名小组
+    if crud.group.group_exists(token.class_id, name):
+        raise BizHTTPException(*RespError.GROUP_EXISTS)
+    # 校验组员是否都在班
+    member_no = crud.class_member.check_group_members(db, token.class_id, members)
+    if member_no != len(members):
+        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+    # 新建小组入库
+    group = Group(name=name, class_id=token.class_id)
+    group = crud.group.create(db, obj_in=group)
+    # 新建组员入库
+    group_members = [
+        GroupMember(group_id=group.id, member_id=member_id)
+        for member_id in members
+    ]
+    db.add_all(group_members)
+    db.commit()
+    return schemas.Response()
+
+
+@router.get('/groups', summary='查询当前所在班级的班级小组信息')
+def get_groups(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_teacher),
+) -> JSONResponse:
+    """
+    查询当前所在班级的班级小组信息
+    """
+    groups = crud.group.get_groups_of_class(db, token.class_id)
+    return schemas.Response(data=groups)
+
+
+@router.get('/groups/{group_id}/members', summary='查询小组所有组员信息')
+def get_group_members(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_teacher),
+    group_id: int = Path(..., description='小组id'),
+) -> JSONResponse:
+    """
+    查询小组所有组员信息
+    """
+    group_members = crud.group_member.get_members_of_group(
+        db, token.class_id, group_id
+    )
+    return schemas.Response(data=group_members)
+
+
+@router.put('/groups/{group_id}', summary='更新班级小组信息')
+def update_group(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_headteacher),
+    group_id: int = Path(..., description='小组id'),
+    name: str = Body(..., min_length=1, max_length=10, description='小组名称'),
+    members: List[int] = Body(..., min_length=1, description='小组成员的成员id列表'),
+) -> JSONResponse:
+    # 检查小组是否存在
+    if not crud.group.group_exists(db, class_id=token.class_id, group_id=group_id):
+        raise BizHTTPException(*RespError.GROUP_NOT_FOUND)
+    # 校验组员是否都在班
+    member_no = crud.class_member.check_group_members(db, token.class_id, members)
+    if member_no != len(members):
+        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+    # 更新小组
+    crud.group.update_group(group_id, name)
+    # 更新小组成员
+    # 删除
+    ids2del = crud.group_member.get_ids_to_del(group_id)
+    ids2del = [x.id for x in ids2del]
+    crud.group_member.delete_by_id(db, ids2del)
+    # 修改 / 新建
+    group_members = [
+        {'group_id': group_id, 'member_id': member_id}
+        for member_id in members
+    ]
+    batch_upsert = insert(GroupMember).values(group_members)
+    batch_upsert = batch_upsert.on_conflict_do_update(
+        index_elements=[GroupMember.group_id, GroupMember.member_id],
+        set_={'member_id': batch_upsert.excluded.member_id}
+    )
+    db.execute(batch_upsert)
+    db.commit()
+    return schemas.Response()
+
+
+@router.delete('/groups/{group_id}', summary='删除小组')
+def delete_group(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_headteacher),
+    group_id: int = Path(..., description='小组id'),
+) -> JSONResponse:
+    if not crud.group.group_exists(db, class_id=token.class_id, group_id=group_id):
+        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+    # 删除小组
+    crud.group.delete_by_id(db, group_id)
+    # 删除组员
+    crud.group_member.delete_by_group(db, group_id)
+    return schemas.Response()

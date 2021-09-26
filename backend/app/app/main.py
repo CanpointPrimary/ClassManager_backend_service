@@ -57,3 +57,8 @@ app.add_exception_handler(Exception, broad_exception_handler)
 app.add_middleware(BaseHTTPMiddleware, dispatch=log_requests)
 # 初始化日志
 init_logger()
+
+
+# if __name__ == '__main__':  # local test
+#     import uvicorn
+#     uvicorn.run('main:app', host='0.0.0.0', reload=True)

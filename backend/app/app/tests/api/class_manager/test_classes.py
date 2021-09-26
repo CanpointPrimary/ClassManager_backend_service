@@ -5,7 +5,6 @@
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import and_
 
 from app.constants import DBConst
 from app.core.config import settings
@@ -23,11 +22,9 @@ def test_get_class_id_by_telephone(
     fake_grade = 2
 
     class_ = db.query(Class).filter(
-        and_(
-            Class.school_id == fake_school_id,
-            Class.class_ == fake_class,
-            Class.grade == fake_grade,
-        )
+        Class.school_id == fake_school_id,
+        Class.class_ == fake_class,
+        Class.grade == fake_grade,
     ).first()
 
     if not class_:
@@ -38,10 +35,8 @@ def test_get_class_id_by_telephone(
         db.commit()
 
     headteacher = db.query(ClassMember).filter(
-        and_(
-            ClassMember.class_id == class_.id,
-            ClassMember.member_role == DBConst.HEADTEACHER
-        )
+        ClassMember.class_id == class_.id,
+        ClassMember.member_role == DBConst.HEADTEACHER
     ).first()
 
     if not headteacher:

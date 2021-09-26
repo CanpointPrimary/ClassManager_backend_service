@@ -62,7 +62,8 @@ class Base:
             TIMESTAMP,
             server_default=text('CURRENT_TIMESTAMP'),
             server_onupdate=text('CURRENT_TIMESTAMP'),
-            comment='最后修改时间'
+            onupdate=text('CURRENT_TIMESTAMP'),
+            comment='最后修改时间',
         )
 
     def __repr__(self):

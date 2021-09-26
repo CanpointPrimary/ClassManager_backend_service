@@ -11,30 +11,41 @@ from typing import List, Tuple
 
 from sqlalchemy.engine.row import Row
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import and_, false, func, null
+from sqlalchemy.sql import false, func, null
 
 from app.crud.base import CRUDBase
 from app.constants import DBConst
-from app.models import Apply4Class, Class, ClassMember, Subject, School
+from app.models import Apply4Class, Class, ClassMember, \
+    Group, GroupMember, Subject, School
 
 
 class CRUDClass(CRUDBase[Class, Class, Class]):
     """
     班级相关CRUD  模型类: Class  数据表: class
     """
-    def class_exists(
-        self, db: Session, class_id: int
-    ) -> Row:
+    def update_audit_need_for_joining(
+        self, db: Session, member_id: int, need_audit: bool
+    ) -> int:
+        """
+        修改班级入班是否需要审核
+        """
+        sq = db.query(ClassMember.class_id.label('class_id')).filter(
+            ClassMember.id == member_id, ClassMember.is_delete == false()
+        ).subquery()
+        res = db.query(self.model).filter(Class.id == sq.c.class_id)\
+            .update({Class.need_audit: need_audit}, synchronize_session=False)
+        db.commit()
+        return res
+
+    def class_exists(self, db: Session, class_id: int) -> Row:
         """
         查询 class_id 对应班级是否存在
         """
         return (
             db.query(self.model.id, self.model.contact, self.model.need_audit)
             .filter(
-                and_(
-                    Class.id == class_id,
-                    self.model.is_delete == false()
-                )
+                Class.id == class_id,
+                Class.is_delete == false(),
             )
             .first()
         )
@@ -46,10 +57,8 @@ class CRUDClass(CRUDBase[Class, Class, Class]):
         return (
             db.query(self.model.id.label('class_code'))
             .filter(
-                and_(
-                    Class.contact == telephone,
-                    Class.is_delete == false(),
-                )
+                Class.contact == telephone,
+                Class.is_delete == false(),
             )
             .first()
         )
@@ -69,13 +78,11 @@ class CRUDClassMember(CRUDBase[ClassMember, ClassMember, ClassMember]):
             )
             .join(Subject, self.model.subject_id == Subject.id)
             .filter(
-                and_(
-                    ClassMember.user_id == user_id,
-                    ClassMember.member_role.in_(
-                        (DBConst.HEADTEACHER, DBConst.TEACHER)
-                    ),
-                    ClassMember.is_delete == false(),
-                )
+                ClassMember.user_id == user_id,
+                ClassMember.member_role.in_(
+                    (DBConst.HEADTEACHER, DBConst.TEACHER)
+                ),
+                ClassMember.is_delete == false(),
             )
             .first()
         )
@@ -87,36 +94,30 @@ class CRUDClassMember(CRUDBase[ClassMember, ClassMember, ClassMember]):
         return (
             db.query(func.count(self.model.id))
             .filter(
-                and_(
-                    ClassMember.user_id == user_id,
-                    ClassMember.name == name,
-                    ClassMember.is_delete == false(),
-                )
+                ClassMember.user_id == user_id,
+                ClassMember.name == name,
+                ClassMember.is_delete == false(),
             )
             .scalar()
         )
 
-    def get_family_members(self, db: Session, class_id: int, name: str) -> List[Row]:  # noqa
+    def get_family_members(self, db: Session, class_id: int, name: str) -> List[Row]:
         """
         根据班级码和学生姓名查询亲属列表
         """
         return (
-            db.query(self.model.name, self.model.family_relation,
-                     self.model.telephone)
+            db.query(self.model.id, self.model.name,
+                     self.model.family_relation, self.model.telephone)
             .filter(
-                and_(
-                    ClassMember.class_id == class_id,
-                    ClassMember.name == name,
-                    ClassMember.member_role == DBConst.STUDENT,
-                    ClassMember.is_delete == false(),
-                )
+                ClassMember.class_id == class_id,
+                ClassMember.name == name,
+                ClassMember.member_role == DBConst.STUDENT,
+                ClassMember.is_delete == false(),
             )
             .all()
         )
 
-    def get_current_class_member(
-        self, db: Session, user_id: int, member_id: int
-    ) -> Row:
+    def get_current_member(self, db: Session, user_id: int, member_id: int) -> Row:
         """
         查询当前用户的班级成员信息
         """
@@ -126,12 +127,10 @@ class CRUDClassMember(CRUDBase[ClassMember, ClassMember, ClassMember]):
                      self.model.family_relation, Class.class_, Class.grade)
             .join(Class, ClassMember.class_id == Class.id)
             .filter(
-                and_(
-                    ClassMember.id == member_id,
-                    ClassMember.user_id == user_id,
-                    ClassMember.is_delete == false(),
-                    Class.is_delete == false(),
-                )
+                ClassMember.id == member_id,
+                ClassMember.user_id == user_id,
+                ClassMember.is_delete == false(),
+                Class.is_delete == false(),
             )
             .first()
         )
@@ -149,14 +148,12 @@ class CRUDClassMember(CRUDBase[ClassMember, ClassMember, ClassMember]):
                      self.model.family_relation, Class.class_, Class.grade,
                      School.id.label('school_id'),
                      School.name.label('school_name'))
-            .outerjoin(Class, ClassMember.class_id == Class.id)
+            .join(Class, ClassMember.class_id == Class.id)
             .outerjoin(School, School.id == Class.school_id)
             .filter(
-                and_(
-                    ClassMember.user_id == user_id,
-                    ClassMember.is_delete == false(),
-                    Class.is_delete == false(),
-                )
+                ClassMember.user_id == user_id,
+                ClassMember.is_delete == false(),
+                Class.is_delete == false(),
             )
             .order_by(ClassMember.create_time.desc())
             .offset((page - 1) * page_size)
@@ -169,51 +166,37 @@ class CRUDClassMember(CRUDBase[ClassMember, ClassMember, ClassMember]):
         查询当前班级成员的角色
         """
         return (
-            db.query(self.model.member_role)
+            db.query(self.model.class_id,
+                     self.model.member_role,
+                     self.model.is_delete)
             .filter(ClassMember.id == member_id)
             .first()
         )
 
-    def get_cur_class_id(self, db: Session, member_id: int) -> int:
+    def get_class_id(self, db: Session, member_id: int) -> int:
         """
         根据 member_id 查询成员当前所在班的 class_id
         """
         return (
             db.query(self.model.class_id)
-            .filter(ClassMember.member_id == member_id)
+            .filter(
+                ClassMember.member_id == member_id,
+                ClassMember.is_delete == false(),
+            )
             .first()
         )
 
-    def get_class_teachers(self, db: Session, class_id: int) -> List[Row]:
+    def get_class_members(self, db: Session, class_id: int) -> List[Row]:
         """
-        根据 class_id 查询该班所有教师的信息
-        """
-        return (
-            db.query(self.model.id, self.model.class_id, self.model.name,
-                     self.model.member_role, self.model.subject_id)
-            .filter(
-                and_(
-                    ClassMember.class_id == class_id,
-                    ClassMember.member_role != DBConst.STUDENT,
-                    ClassMember.is_delete == false(),
-                )
-            )
-            .order_by(ClassMember.member_role.desc())
-            .all()
-        )
-
-    def get_class_students(self, db: Session, class_id: int) -> List[Row]:
-        """
-        根据 class_id 查询该班所有学生的信息
+        根据 class_id 查询该班所有班级成员的信息
         """
         return (
-            db.query(self.model.id, self.model.name, self.model.family_relation)
+            db.query(self.model.id, self.model.name, self.model.member_role,
+                     self.model.family_relation, self.model.subject_id,
+                     self.model.telephone)
             .filter(
-                and_(
-                    ClassMember.class_id == class_id,
-                    ClassMember.member_role == DBConst.STUDENT,
-                    ClassMember.is_delete == false(),
-                )
+                ClassMember.class_id == class_id,
+                ClassMember.is_delete == false(),
             )
             .order_by(ClassMember.create_time.desc())
             .all()
@@ -229,12 +212,10 @@ class CRUDClassMember(CRUDBase[ClassMember, ClassMember, ClassMember]):
             db.query(self.model.id, Subject.name)
             .join(Subject, self.model.subject_id == Subject.id)
             .filter(
-                and_(
-                    ClassMember.class_id == class_id,
-                    ClassMember.subject_id == subject_id,
-                    ClassMember.is_delete == false(),
-                    Subject.is_delete == false(),
-                )
+                ClassMember.class_id == class_id,
+                ClassMember.subject_id == subject_id,
+                ClassMember.is_delete == false(),
+                Subject.is_delete == false(),
             )
             .first()
         )
@@ -246,11 +227,57 @@ class CRUDClassMember(CRUDBase[ClassMember, ClassMember, ClassMember]):
         return (
             db.query(func.count(self.model.id))
             .filter(
-                and_(
-                    ClassMember.id == member_id,
-                    ClassMember.user_id == user_id,
-                    ClassMember.is_delete == false(),
-                )
+                ClassMember.id == member_id,
+                ClassMember.user_id == user_id,
+                ClassMember.is_delete == false(),
+            )
+            .scalar()
+        )
+
+    def update_member(self, db: Session, member_id: int, member: Row) -> int:
+        """
+        更新班级成员信息
+        """
+        res = (
+            db.query(self.model)
+            .filter(ClassMember.id == member_id)
+            .update(
+                {
+                    ClassMember.name: member.name,
+                    ClassMember.family_relation: member.family_relation,
+                    ClassMember.subject_id: member.subject_id,
+                    ClassMember.telephone: member.telephone,
+                }
+            )
+        )
+        db.commit()
+        return res
+
+    def delete_member(self, db: Session, member_id: int) -> int:
+        """
+        删除班级成员
+        """
+        res = (
+            db.query(self.model)
+            .filter(ClassMember.id == member_id)
+            .update({ClassMember.is_delete: True})
+        )
+        db.commit()
+        return res
+
+    def check_group_members(
+        self, db: Session, class_id: int, members: List[int]
+    ) -> int:
+        """
+        检查小组成员是否都在班级成员中
+        """
+        return (
+            db.query(func.count(self.model.id))
+            .filter(
+                ClassMember.class_id == class_id,
+                ClassMember.member_role == DBConst.STUDENT,
+                ClassMember.id.in_(members),
+                ClassMember.is_delete == false(),
             )
             .scalar()
         )
@@ -260,12 +287,28 @@ class CRUDApply4Class(CRUDBase[Apply4Class, Apply4Class, Apply4Class]):
     """
     班级成员相关CRUD  模型类: ClassMember  数据表: class_member
     """
+    def get_apply_records(self, db: Session, class_id: int) -> List[Row]:
+        """
+        根据 class_id 查询该班级的所有审核记录
+        """
+        return (
+            db.query(self.model.id, self.model.name, self.model.subject_id,
+                     self.model.family_relation, self.model.telephone,
+                     self.model.result, self.model.create_time)
+            .filter(self.model.class_id == class_id)
+            .all()
+        )
+
     def get_reviewing_list(
-        self, db: Session, user_id: int, page: int, page_size: int
+        self, db: Session, user_id: int, page: int, page_size: int, rejected: bool
     ) -> List[Row]:
         """
         根据用户id查询审核未通过的入班申请
         """
+        if rejected:
+            filter_cond = Apply4Class.result != DBConst.PASS
+        else:
+            filter_cond = Apply4Class.result == DBConst.REVIEWING
         return (
             db.query(func.count(self.model.id).over().label('total'),
                      self.model.id, self.model.name, self.model.family_relation,
@@ -273,11 +316,9 @@ class CRUDApply4Class(CRUDBase[Apply4Class, Apply4Class, Apply4Class]):
                      Class.class_.label('class'), Class.grade)
             .join(Class, Apply4Class.class_id == Class.id)
             .filter(
-                and_(
-                    Apply4Class.user_id == user_id,
-                    Apply4Class.result != DBConst.PASS,
-                    Class.is_delete == false(),
-                )
+                Apply4Class.user_id == user_id,
+                filter_cond,
+                Class.is_delete == false(),
             )
             .order_by(Apply4Class.create_time.desc())
             .offset((page - 1) * page_size)
@@ -294,12 +335,10 @@ class CRUDApply4Class(CRUDBase[Apply4Class, Apply4Class, Apply4Class]):
         return (
             db.query(func.count(self.model.id))
             .filter(
-                and_(
-                    Apply4Class.user_id == user_id,
-                    Apply4Class.class_id == class_id,
-                    Apply4Class.result != DBConst.REJECT,
-                    Apply4Class.subject_id != null(),
-                )
+                Apply4Class.user_id == user_id,
+                Apply4Class.class_id == class_id,
+                Apply4Class.result != DBConst.REJECT,
+                Apply4Class.subject_id != null(),
             )
             .scalar()
         )
@@ -313,17 +352,150 @@ class CRUDApply4Class(CRUDBase[Apply4Class, Apply4Class, Apply4Class]):
         return (
             db.query(self.model.name)
             .filter(
-                and_(
-                    Apply4Class.user_id == user_id,
-                    Apply4Class.class_id == class_id,
-                    Apply4Class.result != DBConst.REJECT,
-                    Apply4Class.subject_id == null(),
-                )
+                Apply4Class.user_id == user_id,
+                Apply4Class.class_id == class_id,
+                Apply4Class.result != DBConst.REJECT,
+                Apply4Class.subject_id == null(),
             )
             .all()
         )
+
+    def get_apply_by_id(self, db: Session, user_id: int, apply_id: int) -> Row:
+        """
+        根据id查询入班申请信息
+        """
+        return (
+            db.query(
+                self.model.name, self.model.subject_id, self.model.class_id,
+                self.model.family_relation, self.model.telephone,
+            )
+            .filter(
+                Apply4Class.id == apply_id,
+                Apply4Class.user_id == user_id,
+            )
+            .first()
+        )
+
+    def is_apply_reviewing(self, db: Session, apply_id: int, class_id: int) -> Row:
+        """
+        根据id查询入班申请申请人id、申请状态
+        """
+        return (
+            db.query(self.model.result)
+            .filter(
+                Apply4Class.id == apply_id,
+                Apply4Class.class_id == class_id,
+            )
+            .first()
+        )
+
+    def update_apply_result(
+        self, db: Session, apply_id: int, member_id: int, result: str
+    ) -> int:
+        """
+        修改入班申请审核结果
+        """
+        res = db.query(self.model).filter(Apply4Class.id == apply_id)\
+            .update(
+            {Apply4Class.result: result, Apply4Class.auditor_member_id: member_id}
+        )
+        db.commit()
+        return res
+
+
+class CRUDGroup(CRUDBase[Group, Group, Group]):
+    """
+    班级小组相关CRUD  模型类: Group  数据表: group
+    """
+    def get_groups_of_class(self, db: Session, class_id: int) -> List[Group]:
+        """
+        根据班级id查询该班所有班级小组信息
+        """
+        return db.query(self.model).filter(Group.class_id == class_id).all()
+
+    def group_exists(
+        self, db: Session, class_id: int, name: str = None, group_id: int = None
+    ) -> int:
+        """
+        判断小组是否存在
+        """
+        filter_cond = [Group.class_id == class_id]
+        filter_cond.append(Group.name == name) if name else ...
+        filter_cond.append(Group.id == group_id) if group_id else ...
+        return db.query(func.count(self.model.id)).filter(*filter_cond).scalar()
+
+    def update_group(self, db: Session, group_id, name: str) -> int:
+        """
+        更新班级小组信息
+        """
+        res = db.query(self.model).filter(Group.group_id == group_id)\
+            .update({Group.name: name})
+        db.commit()
+        return res
+
+    def delete_by_id(self, db: Session, group_id) -> int:
+        """
+        根据 小组id 删除小组
+        """
+        res = db.query(self.model).filter(Group.id == group_id).delete()
+        db.commit()
+        return res
+
+
+class CRUDGroupMember(CRUDBase[GroupMember, GroupMember, GroupMember]):
+    """
+    小组成员相关CRUD  模型类: GroupMember  数据表: group_member
+    """
+    @staticmethod
+    def get_members_of_group(db: Session, class_id: int, group_id: int) -> List[Row]:
+        """
+        根据 class_id 和 group_id 查询小组成员信息
+        """
+        return (
+            db.query(ClassMember.id, ClassMember.name, ClassMember.family_relation)
+            .join(ClassMember, ClassMember.id == GroupMember.member_id)
+            .filter(
+                GroupMember.group_id == group_id,
+                ClassMember.class_id == class_id,
+                ClassMember.is_delete == false(),
+            )
+            .all()
+        )
+
+    def get_ids_to_del(
+        self, db: Session, group_id: int, members: List[int]
+    ) -> List[Row]:
+        """
+        查询需要删除的组员的id
+        """
+        return (
+            db.query(self.model.id)
+            .filter(
+                GroupMember.group_id == group_id,
+                GroupMember.member_id.notin_(members),
+            )
+            .all()
+        )
+
+    def delete_by_id(self, db: Session, ids2del: List[int]) -> int:
+        """
+        根据 成员id 删除组员
+        """
+        res = db.query(self.model).filter(GroupMember.id.in_(ids2del)).delete()
+        db.commit()
+        return res
+
+    def delete_by_group(self, db: Session, group_id):
+        """
+        根据 小组id 删除组员
+        """
+        res = db.query(self.model).filter(GroupMember.group_id == group_id).delete()
+        db.commit()
+        return res
 
 
 class_ = CRUDClass(Class)
 class_member = CRUDClassMember(ClassMember)
 apply4class = CRUDApply4Class(Apply4Class)
+group = CRUDGroup(Group)
+group_member = CRUDGroupMember(GroupMember)

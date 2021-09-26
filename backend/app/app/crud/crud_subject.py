@@ -10,7 +10,7 @@ CRUD模块 - 学科相关 非复杂业务CRUD
 from typing import List
 
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import and_, false, func
+from sqlalchemy.sql import false, func
 
 from app.crud.base import CRUDBase
 from app.models import Subject
@@ -39,10 +39,8 @@ class CRUDSubject(CRUDBase[Subject, Subject, Subject]):
         return (
             db.query(func.count(self.model.id))
             .filter(
-                and_(
-                    Subject.id == subject_id,
-                    Subject.is_delete == false(),
-                )
+                Subject.id == subject_id,
+                Subject.is_delete == false()
             )
         )
 

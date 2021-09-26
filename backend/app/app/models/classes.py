@@ -46,7 +46,7 @@ class ClassMember(Base):
                 comment='id，主键')
     class_id = Column(BigInteger, nullable=False, comment='班级id')
     user_id = Column(BigInteger, comment='用户id')
-    name = Column(String, nullable=False, comment='教师/学生姓名')
+    name = Column(String, nullable=False, comment='成员姓名')
     member_role = Column(String(2), nullable=False,
                          comment='成员身份: 1-班主任 2-任课老师 3-学生')
     subject_id = Column(Integer, comment='任教科目id')
@@ -68,24 +68,45 @@ class Apply4Class(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键')
     user_id = Column(BigInteger, nullable=False, comment='申请人id')
     name = Column(String, nullable=False, comment='申请姓名')
-    auditor = Column(String, comment='审核人姓名')
     auditor_member_id = Column(BigInteger, comment='审核人的班级成员id')
-    class_id = Column(BigInteger, nullable=False, comment='申请加入班级的id')  # noqa
-    family_relation = Column(String(2), comment='亲属关系id: '
+    class_id = Column(BigInteger, nullable=False, comment='申请加入班级的id')
+    family_relation = Column(String(2), comment='亲属关系: '
                                                 '1-本人 2-爸爸 3-妈妈 4-爷爷 5-奶奶 '
                                                 '6-外公 7-外婆 8-哥哥 9-姐姐')
     subject_id = Column(Integer, comment='任教科目id')
     telephone = Column(String(11), comment='电话号码')
     result = Column(String(2), nullable=False, server_default='1',
                     comment='审核结果: 0-驳回 1-审核中 2-通过')
-    end_time = Column(TIMESTAMP, comment='结束时间')
+    end_time = Column(TIMESTAMP, onupdate=text('CURRENT_TIMESTAMP'),
+                      comment='结束时间')
 
     __idx_list__ = ('user_id', 'class_id')
     __no_update_time__ = True
 
 
-class Group:
+class Group(Base):
     """
     班级小组
+    数据表: group - 班级小组信息
     """
-    ...
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键')
+    name = Column(String(10), nullable=False, comment='小组名称')
+    class_id = Column(BigInteger, nullable=False, comment='所属班级id')
+
+    __idx_list__ = ('class_id', )
+    __arg_list__ = (UniqueConstraint('name', 'class_id'), )
+
+
+class GroupMember(Base):
+    """
+    小组成员
+    数据表: class_group_member - 班级小组成员信息
+    """
+    __tablename__ = 'class_group_member'  # noqa
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键')
+    group_id = Column(BigInteger, nullable=False, comment='所属小组id')
+    member_id = Column(BigInteger, nullable=False, comment='成员id')
+
+    __idx_list__ = ('group_id', 'member_id')
+    __arg_list__ = (UniqueConstraint('group_id', 'member_id'), )

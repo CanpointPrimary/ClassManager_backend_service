@@ -7,10 +7,11 @@
 CRUD模块 - 系统配置相关 非复杂业务CRUD
 """
 
-from typing import List, Tuple
+from typing import List
 
+from sqlalchemy.engine import Row
 from sqlalchemy.orm import aliased, Session
-from sqlalchemy.sql import and_, func
+from sqlalchemy.sql import func
 
 from app.crud.base import CRUDBase
 from app.constants import DBConst
@@ -24,13 +25,13 @@ class CRUDRegion(CRUDBase[Region, Region, Region]):
     数据表: region
     """
     @staticmethod
-    def get_area_tree(db: Session) -> List[Tuple]:
+    def get_area_tree(db: Session) -> List[Row]:
         """
         获取 区县级行政区 编码、名称、父级行政区编码
         """
         parent = aliased(Region)
         return (
-            db.query(Region.code, Region.name, parent.name)
+            db.query(Region.code, Region.name, parent.name.label('parent_name'))
             .join(parent, Region.parent_code == parent.code)
             .filter(Region.level == DBConst.AREA)
             .all()
@@ -44,7 +45,7 @@ class CRUDSysConfig(CRUDBase[SysConfig, SysConfig, SysConfig]):
     数据表: sys_config
     """
     @staticmethod
-    def get_config_by_type(db: Session, type_: str) -> List[Tuple[str, str]]:
+    def get_config_by_type(db: Session, type_: str) -> List[Row]:
         """
         根据配置类型查得该类型的所有配置项的 key-value
         """
@@ -61,10 +62,8 @@ class CRUDSysConfig(CRUDBase[SysConfig, SysConfig, SysConfig]):
         return (
             db.query(func.count(self.model.id))
             .filter(
-                and_(
                     SysConfig.type_ == DBConst.FAMILY_RELATION,
                     SysConfig.key == family_relation,
-                )
             )
             .scalar()
         )
@@ -72,11 +71,3 @@ class CRUDSysConfig(CRUDBase[SysConfig, SysConfig, SysConfig]):
 
 region = CRUDRegion(Region)
 sys_config = CRUDSysConfig(SysConfig)
-
-
-if __name__ == '__main__':
-    from app.db.session import SessionLocal
-    session = SessionLocal()
-    result = region.get_area_tree(session)
-    print(result)
-    print(len(result))

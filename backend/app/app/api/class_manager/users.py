@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.api import deps
-from app.constants import RespError
+from app.constants import DBConst, RespError
 from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.core.security import AESCrypto, WXBizDataCrypt
@@ -37,8 +37,9 @@ def get_user_basic_info(
     查询用户在 当前所在班级的 信息
     """
     user_id = int(token.sub)
-    cur_member_id = token.user.current_member_id
-    return crud.class_member.get_current_class_member(db, user_id, cur_member_id)
+    cur_member_id = token.member_id
+    cur_member = crud.class_member.get_current_member(db, user_id, cur_member_id)
+    return schemas.Response(data=cur_member)
 
 
 @router.post('/telephone/sms_captcha/request', summary='请求手机短信验证码')
@@ -46,8 +47,9 @@ def send_sms_captcha(
     request_id: int = Depends(deps.get_request_id),
     _: schemas.TokenPayload = Depends(deps.get_activated),
     redis: Redis = Depends(deps.get_redis),
-    telephone: str = Body(..., regex=TELEPHONE_REGEX,
-                          embed=True, description='电话号码'),
+    telephone: str = Body(
+        ..., regex=TELEPHONE_REGEX, embed=True, description='电话号码'
+    ),
 ) -> JSONResponse:
     """
     通过短信发送手机号验证码
@@ -61,13 +63,14 @@ def send_sms_captcha(
     captcha = secrets.randbelow(999999)
     # 向celery推送短信发送任务
     celery_app.send_task(
-        'worker.send_sms_captcha',
+        'send_sms_captcha',
         args=[
             request_id,
             telephone,
             captcha,
             settings.SMS_CAPTCHA_EXPIRE_SECONDS // 60,
-        ]
+        ],
+        queue='main-queue',
     )
     # 存储 send_flag 和 验证码 到Redis
     redis.setex(f'send_flag_{telephone}', settings.SEND_SMS_INTERVAL_SECONDS, 1)
@@ -102,16 +105,16 @@ def switch_class(
     """
     用户切换所在班级
     """
-    if member_id == token.user.current_member_id:
+    if member_id == token.member_id:
         return schemas.Response()
     user_id = int(token.sub)
     if not crud.class_member.member_exists(db, member_id, user_id):
-        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+        raise BizHTTPException(*RespError.CLASS_MEMBER_NOT_FOUND)
     crud.user.update_current_member(db, user_id, member_id)
     return schemas.Response()
 
 
-@router.get('/classes/', summary='查询用户班级列表')
+@router.get('/classes', summary='查询用户已加入的班级列表')
 def get_already_in_class_list(
     db: Session = Depends(deps.get_db),
     token: schemas.TokenPayload = Depends(deps.get_activated),
@@ -119,7 +122,7 @@ def get_already_in_class_list(
     page_size: int = Query(..., gt=0, le=100, description='页数据量'),
 ) -> JSONResponse:
     """
-    查询用户班级列表
+    查询用户已加入的班级列表
     """
     user_id = int(token.sub)
     result_list = crud.class_member.get_class_list(db, user_id, page, page_size)
@@ -127,41 +130,42 @@ def get_already_in_class_list(
     return schemas.Response(data=resp_data)
 
 
-@router.get('/classes/', summary='查询审核中的班级列表')
-def get_reviewing_class_list(
+@router.get('/requested_classes', summary='查询用户待审核的班级列表')
+def get_reviewing_classes(
     db: Session = Depends(deps.get_db),
     token: schemas.TokenPayload = Depends(deps.get_activated),
     page: int = Query(..., gt=0, description='页码'),
     page_size: int = Query(..., gt=0, le=100, description='页数据量'),
+    rejected: bool = Query(False, description='是否包含未通过的班级申请'),
 ) -> JSONResponse:
     """
-    查询审核中的班级列表
+    查询用户待审核的班级列表
     """
     user_id = int(token.sub)
     result_list = crud.apply4class.get_reviewing_list(
-        db, user_id, page, page_size
+        db, user_id, page, page_size, rejected
     )
     resp_data = deps.handle_paging_data(result_list, page, page_size)
     return schemas.Response(data=resp_data)
 
 
-@router.get('/classes/class_members', summary='查询班级成员信息')
+@router.get('/classes/class_members', summary='查询用户所在班的班级成员信息')
 def get_class_members_list(
     db: Session = Depends(deps.get_db),
-    token: schemas.TokenPayload = Depends(deps.get_teacher),
+    token: schemas.TokenPayload = Depends(deps.get_activated),
 ) -> JSONResponse:
     """
-    查询班级成员信息
+    查询用户所在班的班级成员信息
     """
-    if not token.user.current_member_id:
+    if not token.member_id:
         return schemas.Response(data=None)
-    cur_member = crud.class_member.get_cur_class_id(
-        db, token.user.current_member_id
-    )
+    cur_member = crud.class_member.get_class_id(db, token.member_id)
     if not cur_member:
         return schemas.Response(data=None)
     class_id = cur_member.class_id
-    teacher_list = crud.class_member.get_class_teachers(db, class_id)
-    student_list = crud.class_member.get_class_students(db, class_id)
+    member_list = crud.class_member.get_class_members(db, class_id)
+    teacher_list = [x for x in member_list if x.member_role != DBConst.STUDENT]
+    student_list = [x for x in member_list if x.member_role == DBConst.STUDENT]
+    teacher_list.sort(key=lambda x: x.member_role)
     data = {'teachers': teacher_list, 'students': student_list}
     return schemas.Response(data=data)

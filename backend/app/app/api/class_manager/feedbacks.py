@@ -61,7 +61,7 @@ def feedback_exception(
         )
     ]
     if in_existence:
-        raise BizHTTPException(*RespError.IN_EXISTENCE_UPLOADED_FILE)
+        raise BizHTTPException(*RespError.UPLOADED_FILE_NOT_FOUND)
     feedback = Feedback(
         user_id=int(token.sub), category=category,
         images=','.join(file_list), desc=exc_desc,

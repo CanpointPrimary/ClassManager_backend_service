@@ -20,7 +20,9 @@ from tencentcloud.common.profile.http_profile import HttpProfile
 from app import schemas
 from app.core.celery_app import celery_app
 from app.core.config import settings
+from app.core.internal import APIGateway
 from app.db.redis import redis
+from app.db.session import SessionLocal
 
 
 client_sentry = Client(settings.SENTRY_DSN)
@@ -30,7 +32,7 @@ if os.path.exists('celerybeat-schedule'):
     os.remove('celerybeat-schedule')
 
 
-@celery_app.task()
+@celery_app.task(name='send_sms_captcha')
 def send_sms_captcha(
     request_id: str, telephone: str, captcha: int, expire: int
 ) -> None:
@@ -113,7 +115,13 @@ def send_sms_captcha(
                      f'unexpected exception:\n{traceback.format_exc()}')
 
 
-@celery_app.task()
+@celery_app.task(name='update_school_data')
+def update_school_data() -> Any:
+    db = SessionLocal()
+    APIGateway.sync_school_data(db)
+
+
+@celery_app.task(name='get_wx_mini_program_access_token')
 def get_wx_mini_program_access_token() -> Any:
     """
     请求微信小程序平台 access_token
@@ -143,7 +151,7 @@ def get_wx_mini_program_access_token() -> Any:
 
 
 @celery_app.on_after_configure.connect
-def set_timing_task(sender, **_):
+def set_timing_task(sender, **_) -> None:
     """
     设置celery定时任务
     """
@@ -151,9 +159,13 @@ def set_timing_task(sender, **_):
     period -= settings.WX_ACCESS_TOKEN_UPDATE_OFFSET
     sender.add_periodic_task(period,
                              get_wx_mini_program_access_token.s(),
-                             name='get_wx_mini_program_access_token')
+                             name='update_wx_mini_program_access_token',
+                             queue='main-queue')
 
 
 @beat_init.connect
-def when_beat_init(*_, **__):
-    get_wx_mini_program_access_token.delay()
+def when_beat_init(*_, **__) -> Any:
+    """
+    设置beat启动时worker执行到任务
+    """
+    celery_app.send_task('get_wx_mini_program_access_token', queue='main-queue')

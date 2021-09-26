@@ -8,13 +8,13 @@
 """
 
 import json
-import pandas as pd
 import requests
 import time
 from hashlib import md5
 from loguru import logger
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
+from sqlalchemy.engine import Row
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import text
@@ -75,13 +75,9 @@ class APIGateway(object):
         """
         # 查询 全国地区、学段 相关的系统配置
         sys_area = region.get_area_tree(db)
-        sys_area = pd.DataFrame(
-            sys_area, columns=['code', 'name', 'parent_name']
-        )
-        sys_stage = sys_config.get_config_by_type(
-            db, DBConst.SCHOOL_STUDY_STAGE
-        )
-        sys_stage = pd.DataFrame(sys_stage, columns=['key', 'stage_name'])
+        sys_stage = sys_config.get_config_by_type(db, DBConst.SCHOOL_STUDY_STAGE)  # noqa
+        sys_stage = {x.value: x.key for x in sys_stage}
+        # {'小学': '1', '初中': '2', '高中': '3'}
 
         # 调用接口，获取 总页数 和 第一页学校数据
         resp = cls.list_school()
@@ -98,8 +94,8 @@ class APIGateway(object):
 
     @staticmethod
     def preprocess_resp(
-        resp: requests.Response, sys_area: pd.DataFrame, sys_stage: pd.DataFrame
-    ) -> Tuple[int, List[dict]]:
+        resp: requests.Response, sys_area: List[Row], sys_stage: Dict[str, str]
+    ) -> Tuple[int, List[Dict]]:
         """
         预处理 API网关接口返回的响应数据
         匹配 所属地区、学段 信息
@@ -116,25 +112,25 @@ class APIGateway(object):
         for school in school_list:
             if school.status == DISABLED_SCHOOL:
                 continue
-            match_area = sys_area[sys_area['name'] == school.areaName]
+            match_area = [x for x in sys_area if x.name == school.areaName]
             if len(match_area) > 1:
-                match_area = sys_area[
-                    (sys_area['name'] == school.areaName)
-                    & (sys_area['parent_name'] == school.cityName)
-                    ]
+                match_area = [
+                    x for x in match_area
+                    if x.name == school.areaName
+                    and x.parent_name == school.cityName
+                ]
             if len(match_area) != 1:
                 invalid_list.append(school)
                 continue
-            region_code = int(match_area.iloc[0]['code'])
+            region_code = match_area[0].code
 
             stages = []
             stage_list = school.periodName.split(',')
             for stage in stage_list:
-                match_stage = sys_stage[sys_stage['stage_name'] == stage]
-                if len(match_stage) != 1:
+                stage_key = sys_stage.get(stage)
+                if not stage_key:
                     invalid_list.append(school)
                     continue
-                stage_key = match_stage.iloc[0]['key']
                 stages.append(stage_key)
             study_stage = ','.join(stages)
 
@@ -186,10 +182,6 @@ class APIGateway(object):
 
 if __name__ == '__main__':
     from app.db.session import SessionLocal
-
-    pd.set_option('display.max_rows', 50)
-    pd.set_option('display.max_columns', 500)
-    pd.set_option('display.width', 1000)
 
     session = SessionLocal()
     APIGateway.sync_school_data(session)
