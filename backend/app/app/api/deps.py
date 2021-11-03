@@ -91,15 +91,17 @@ def get_class_member(
     """
     校验用户当前班级成员身份是否有效，返回Token payload
     """
-    cur_member = crud.class_member.get_member_role(db, token.member_id)
+    cur_member = crud.class_member.get_member_info(db, token.member_id)
     # 若查无此班级成员则返回 权限不足
     if not cur_member:
         raise BizHTTPException(*RespError.AUTHORIZATION_DENIED)
     # 若此班级成员已被删除则返回 当前班级成员身份已失效
     if cur_member.is_delete:
         raise BizHTTPException(*RespError.DISABLED_CLASS_MEMBERSHIP)
+    token.name = cur_member.name
     token.member_role = cur_member.member_role
     token.class_id = cur_member.class_id
+    token.subject_id = cur_member.subject_id
     return token
 
 
@@ -123,6 +125,17 @@ def get_headteacher(
     """
     # 若班级成员身份不为班主任则返回 权限不足
     if token.member_role != DBConst.HEADTEACHER:
+        raise BizHTTPException(*RespError.AUTHORIZATION_DENIED)
+    return token
+
+
+def get_student(
+    token: schemas.TokenPayload = Depends(get_class_member),
+) -> schemas.TokenPayload:
+    """
+    校验当前用户在班身份是否学生
+    """
+    if token.member_role != DBConst.STUDENT:
         raise BizHTTPException(*RespError.AUTHORIZATION_DENIED)
     return token
 

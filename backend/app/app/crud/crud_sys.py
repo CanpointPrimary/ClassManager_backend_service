@@ -55,12 +55,13 @@ class CRUDSysConfig(CRUDBase[SysConfig, SysConfig, SysConfig]):
             .all()
         )
 
-    def family_relation_exists(self, db: Session, family_relation: str) -> int:
+    @staticmethod
+    def family_relation_exists(db: Session, family_relation: str) -> int:
         """
         查询对应 亲属关系 配置是否存在
         """
         return (
-            db.query(func.count(self.model.id))
+            db.query(func.count(SysConfig.id))
             .filter(
                     SysConfig.type_ == DBConst.FAMILY_RELATION,
                     SysConfig.key == family_relation,

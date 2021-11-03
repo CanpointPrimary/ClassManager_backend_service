@@ -47,5 +47,5 @@ class SysConfig(Base):
     desc = Column(String, comment='配置项说明')
     type_ = Column('type', Integer, nullable=False, comment='配置类型')
 
-    __no_crete_time__ = True
+    __no_create_time__ = True
     __no_update_time__ = True

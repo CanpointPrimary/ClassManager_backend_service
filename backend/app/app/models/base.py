@@ -19,7 +19,7 @@ from sqlalchemy.types import TIMESTAMP
 class Base:
     id: Any
     __name__: str
-    __no_crete_time__: bool
+    __no_create_time__: bool
     __no_update_time__: bool
 
     # 自动生成表名

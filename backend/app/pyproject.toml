@@ -29,6 +29,8 @@ loguru = "^0.5.3"
 pycryptodome = "^3.10.1"
 aiofiles = "^0.7.0"
 tencentcloud-sdk-python = "^3.0.462"
+opencv-python = "^4.5.3"
+python-magic = "^0.4.24"
 
 [tool.poetry.dev-dependencies]
 mypy = "^0.770"

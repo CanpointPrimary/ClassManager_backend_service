@@ -14,9 +14,8 @@ from app.exceptions import (
 from app.utils import init_logger
 
 
-# 保存项目根路径到配置对象
+# 保存项目路径到配置对象
 settings.BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -39,10 +38,11 @@ if settings.BACKEND_CORS_ORIGINS:
 # 初始化静态文件目录
 @app.on_event('startup')
 def startup_event():
-    os.mkdir('static') if not os.path.exists('static') else ...
-    os.mkdir('static/pics') if not os.path.exists('static/pics') else ...
-    os.mkdir('upload') if not os.path.exists('upload') else ...
-    os.mkdir('upload/pics') if not os.path.exists('upload/pics') else ...
+    os.makedirs('static/pics', exist_ok=True)
+    os.makedirs('upload/images', exist_ok=True)
+    os.makedirs('upload/audios', exist_ok=True)
+    os.makedirs('upload/videos', exist_ok=True)
+    os.makedirs('upload/docs', exist_ok=True)
 
 
 # 注册API路由

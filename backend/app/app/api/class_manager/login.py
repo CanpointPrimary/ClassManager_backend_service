@@ -23,6 +23,7 @@ from app.constants import RespError
 from app.core import security
 from app.core.config import settings
 from app.exceptions import BizHTTPException
+from app.models import User
 from app.schemas import Code2SessionMsg
 
 
@@ -75,7 +76,7 @@ def get_access_token(
     # 查询该openid的用户是否已在数据库内，若无则新建用户数据
     user = crud.user.is_openid_exists(db, resp_msg.openid)
     if not user:
-        new_user = schemas.UserCreate(openid=resp_msg.openid)
+        new_user = User(openid=resp_msg.openid)
         user = crud.user.create(db, obj_in=new_user)
 
     # Token过期时间

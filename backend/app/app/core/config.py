@@ -7,7 +7,8 @@ from pydantic import AnyHttpUrl, BaseSettings, EmailStr, HttpUrl, PostgresDsn, \
 
 
 class Settings(BaseSettings):
-    BASE_DIR: str = None
+    BASE_DIR: str = None            # 项目根目录路径
+
     CLASS_MANAGER_STR: str = "/class_manager"
     SECRET_KEY: str = secrets.token_urlsafe(32)
     # AES加密用 KEY、向量
@@ -137,4 +138,4 @@ settings = Settings()
 
 
 if __name__ == '__main__':
-    print(settings)
+    print(settings.SQLALCHEMY_DATABASE_URI)

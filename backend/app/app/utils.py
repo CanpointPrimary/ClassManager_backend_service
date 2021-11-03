@@ -9,7 +9,10 @@
 
 import os
 import sys
+from typing import IO
 
+import aiofiles
+import cv2
 from loguru import logger
 
 from app.core.config import settings
@@ -43,3 +46,40 @@ def init_logger():
         enqueue=True,
         compression='zip',
     )
+
+
+async def save_file_chunked(
+    io_in: IO,
+    new_file_path: str,
+    chunk_size: int = 1024 ** 3,
+    size_limit: int = 1024 ** 3
+) -> int:
+    """
+    分片读取保存文件，如果指定了文件大小限制，当文件大小超出限制时则不会保存文件
+    返回写入文件大小
+    """
+    writen_size = 0
+    async with aiofiles.open(new_file_path, 'wb') as file_out:
+        while content := await io_in.read(chunk_size):
+            writen_size += len(content)
+            if size_limit and writen_size > size_limit:
+                writen_size = 0
+                break
+            await file_out.write(content)
+    if not writen_size:
+        os.remove(new_file_path)
+    return writen_size
+
+
+def get_video_duration(video_path: str) -> int:
+    """
+    获取视频时长
+    """
+    video = cv2.VideoCapture(video_path)
+    if video.isOpened():
+        frame_count = video.get(cv2.CAP_PROP_FRAME_COUNT)
+        fps = video.get(cv2.CAP_PROP_FPS)
+        duration = int(frame_count / fps)
+        video.release()
+        return duration
+    return 0

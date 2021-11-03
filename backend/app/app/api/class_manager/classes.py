@@ -235,10 +235,9 @@ def student_into_class(
     # 如果该班级不需要审核，直接入班
     if not class_.need_audit:
         student = ClassMember(class_id=class_.id, user_id=user_id, name=name,
-                              member_role=DBConst.STUDENT,
-                              family_relation=family_relation,
-                              telephone=telephone)
-        crud.class_member.create(student)
+                              member_role=DBConst.STUDENT, telephone=telephone,
+                              family_relation=family_relation)
+        crud.class_member.create(db, obj_in=student)
         return schemas.Response()
     # 提交入班申请
     apply = Apply4Class(name=name, user_id=user_id, class_id=class_.id,
@@ -309,7 +308,7 @@ def get_invitation_links(
 def get_invitation_wxacode(
     token: schemas.TokenPayload = Depends(deps.get_teacher),
     redis: Redis = Depends(deps.get_redis),
-    page: str = Query(None, description='跳转页面连接'),
+    page: str = Query(None, description='跳转页面链接'),
 ) -> JSONResponse:
     """
     生成邀请入班的小程序码
@@ -372,7 +371,7 @@ def update_audit_need_for_class_joining(
 def delete_class_member(
     db: Session = Depends(deps.get_db),
     token: schemas.TokenPayload = Depends(deps.get_class_member),
-    member_id: int = Path(..., description='班级成员id'),
+    member_id: int = Path(..., description='要删除的班级成员的成员id'),
 ) -> JSONResponse:
     """
     删除班级成员
@@ -387,7 +386,7 @@ def delete_class_member(
 
 @router.put('/class_members/{member_id}', summary='修改班级成员信息')
 def update_member(
-    class_member: schemas.ClassMember,
+    class_member: schemas.ClassMember = Body(..., description='班级成员信息'),
     db: Session = Depends(deps.get_class_member),
     token: schemas.TokenPayload = Depends(deps.get_db),
     member_id: int = Path(..., description='要修改的班级成员的成员id'),
@@ -397,7 +396,7 @@ def update_member(
     # 如果用户不是班主任也不是修改自己信息
     if token.member_role != DBConst.HEADTEACHER and member_id != token.member_id:
         raise BizHTTPException(*RespError.AUTHORIZATION_DENIED)
-    target_member = crud.class_member.get_member_role(member_id)
+    target_member = crud.class_member.get_member_info(member_id)
     if not target_member or target_member.is_delete:
         raise BizHTTPException(*RespError.INVALID_PARAMETER)
     if (
@@ -449,31 +448,16 @@ def review_join_request(
     return schemas.Response()
 
 
-@router.post('/groups', summary='新建班级小组')
-def add_class_group(
+@router.get('/students/names', summary='查询班级所有学生姓名')
+def get_class_stu_names(
     db: Session = Depends(deps.get_db),
-    token: schemas.TokenPayload = Depends(deps.get_headteacher),
-    name: str = Body(..., min_length=1, max_length=10, description='小组名称'),
-    members: List[int] = Body(..., min_length=1, description='小组成员的成员id列表'),
+    token: schemas.TokenPayload = Depends(deps.get_teacher),
 ) -> JSONResponse:
-    # 校验当前班级是否已存在同名小组
-    if crud.group.group_exists(token.class_id, name):
-        raise BizHTTPException(*RespError.GROUP_EXISTS)
-    # 校验组员是否都在班
-    member_no = crud.class_member.check_group_members(db, token.class_id, members)
-    if member_no != len(members):
-        raise BizHTTPException(*RespError.INVALID_PARAMETER)
-    # 新建小组入库
-    group = Group(name=name, class_id=token.class_id)
-    group = crud.group.create(db, obj_in=group)
-    # 新建组员入库
-    group_members = [
-        GroupMember(group_id=group.id, member_id=member_id)
-        for member_id in members
-    ]
-    db.add_all(group_members)
-    db.commit()
-    return schemas.Response()
+    """
+    查询班级所有学生姓名
+    """
+    stu_names = crud.class_member.get_stu_names(db, token.class_id)
+    return schemas.Response(data=stu_names)
 
 
 @router.get('/groups', summary='查询当前所在班级的班级小组信息')
@@ -484,23 +468,51 @@ def get_groups(
     """
     查询当前所在班级的班级小组信息
     """
-    groups = crud.group.get_groups_of_class(db, token.class_id)
+    groups = crud.group.get_class_groups(db, token.class_id)
     return schemas.Response(data=groups)
 
 
-@router.get('/groups/{group_id}/members', summary='查询小组所有组员信息')
+@router.get('/groups/{group_id}/students', summary='查询小组所有学生姓名')
 def get_group_members(
     db: Session = Depends(deps.get_db),
     token: schemas.TokenPayload = Depends(deps.get_teacher),
     group_id: int = Path(..., description='小组id'),
 ) -> JSONResponse:
     """
-    查询小组所有组员信息
+    查询小组所有学生姓名
     """
-    group_members = crud.group_member.get_members_of_group(
-        db, token.class_id, group_id
-    )
-    return schemas.Response(data=group_members)
+    stu_names = crud.group_member.get_members_of_group(db, token.class_id, group_id)
+    return schemas.Response(data=stu_names)
+
+
+@router.post('/groups', summary='新建班级小组')
+def add_class_group(
+    db: Session = Depends(deps.get_db),
+    token: schemas.TokenPayload = Depends(deps.get_headteacher),
+    name: str = Body(..., min_length=1, max_length=10, description='小组名称'),
+    stu_names: List[str] = Body(..., description='学生姓名列表'),
+) -> JSONResponse:
+    """
+    新建班级小组
+    """
+    # 校验当前班级是否已存在同名小组，若已存在则返回 `班级小组已存在`
+    if crud.group.group_exists(db, token.class_id, name):
+        raise BizHTTPException(*RespError.GROUP_EXISTS)
+    # 校验学生是否都已在班
+    at_class_names = crud.class_member.get_stu_names(db, token.class_id, stu_names)
+    if len(at_class_names) != len(stu_names):
+        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+    # 新建小组入库
+    group = Group(name=name, class_id=token.class_id)
+    group = crud.group.create(db, obj_in=group)
+    # 新建组员入库
+    group_members = [
+        GroupMember(group_id=group.id, name=stu_name)
+        for stu_name in stu_names
+    ]
+    db.add_all(group_members)
+    db.commit()
+    return schemas.Response()
 
 
 @router.put('/groups/{group_id}', summary='更新班级小组信息')
@@ -509,31 +521,31 @@ def update_group(
     token: schemas.TokenPayload = Depends(deps.get_headteacher),
     group_id: int = Path(..., description='小组id'),
     name: str = Body(..., min_length=1, max_length=10, description='小组名称'),
-    members: List[int] = Body(..., min_length=1, description='小组成员的成员id列表'),
+    stu_names: List[int] = Body(..., description='学生姓名列表'),
 ) -> JSONResponse:
-    # 检查小组是否存在
+    # 检查小组是否存在，若不存在则返回 `不存在的班级小组`
     if not crud.group.group_exists(db, class_id=token.class_id, group_id=group_id):
         raise BizHTTPException(*RespError.GROUP_NOT_FOUND)
-    # 校验组员是否都在班
-    member_no = crud.class_member.check_group_members(db, token.class_id, members)
-    if member_no != len(members):
+    # 校验学生是否都已在班
+    at_class_names = crud.class_member.get_stu_names(db, token.class_id, stu_names)
+    if len(at_class_names) != len(stu_names):
         raise BizHTTPException(*RespError.INVALID_PARAMETER)
-    # 更新小组
-    crud.group.update_group(group_id, name)
+    # 更新小组名称k
+    crud.group.update_group_name(group_id, name)
     # 更新小组成员
     # 删除
-    ids2del = crud.group_member.get_ids_to_del(group_id)
-    ids2del = [x.id for x in ids2del]
-    crud.group_member.delete_by_id(db, ids2del)
+    names2del = crud.group_member.get_names2del(group_id, stu_names)
+    names2del = [x.name for x in names2del]
+    crud.group_member.delete_by_names(db, names2del) if names2del else ...
     # 修改 / 新建
     group_members = [
-        {'group_id': group_id, 'member_id': member_id}
-        for member_id in members
+        {'group_id': group_id, 'name': stu_name}
+        for stu_name in stu_names
     ]
     batch_upsert = insert(GroupMember).values(group_members)
     batch_upsert = batch_upsert.on_conflict_do_update(
-        index_elements=[GroupMember.group_id, GroupMember.member_id],
-        set_={'member_id': batch_upsert.excluded.member_id}
+        index_elements=[GroupMember.group_id, GroupMember.name],
+        set_={'name': batch_upsert.excluded.name}
     )
     db.execute(batch_upsert)
     db.commit()
@@ -546,10 +558,13 @@ def delete_group(
     token: schemas.TokenPayload = Depends(deps.get_headteacher),
     group_id: int = Path(..., description='小组id'),
 ) -> JSONResponse:
+    """
+    删除小组
+    """
     if not crud.group.group_exists(db, class_id=token.class_id, group_id=group_id):
-        raise BizHTTPException(*RespError.INVALID_PARAMETER)
+        raise BizHTTPException(*RespError.GROUP_NOT_FOUND)
     # 删除小组
     crud.group.delete_by_id(db, group_id)
     # 删除组员
-    crud.group_member.delete_by_group(db, group_id)
+    crud.group_member.delete_by_group_id(db, group_id)
     return schemas.Response()

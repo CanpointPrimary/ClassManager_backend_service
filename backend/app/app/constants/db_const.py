@@ -39,4 +39,40 @@ class DBConst(Const):
     PASS = '2'       # 通过
 
     # -------------- 用户反馈 feedback 相关 --------------
-    PRODUCT_SUGGESTION = '0'  # 产品建议
+    PRODUCT_SUGGESTION = '1'  # 产品建议
+
+    # ------------- 文件信息 file_info 相关 --------------
+    IMAGE = '1'  # 图像
+    VIDEO = '2'  # 视频
+    AUDIO = '3'  # 音频
+    DOC = '4'    # 文档
+
+    # ----------- 文件引用 file_reference 相关 -----------
+    REF_BY_USER_FEEDBACK = '1'    # 用户反馈
+    REF_BY_HOMEWORK = '2'         # 作业
+    REF_BY_HOMEWORK_ANSWER = '3'  # 作业作答
+
+    # ---------------- 消息 message 相关 ----------------
+    SCHOOL_HOMEWORK_HINT = '1'     # 校本作业提示
+    SCHOOL_HOMEWORK_COMMENT = '2'  # 校本作业评论
+
+    # ----------- 作业发布 homework_assign 相关 ----------
+    ASSIGNED4WHOLE_CLASS = '0'  # 作业发布给全班所有人
+
+    # ------------- 作业 homework_answer 相关 ------------
+    ANSWER = '1'      # 作答
+    REWORKING = '2'   # 重做
+    CORRECTION = '3'  # 订正
+
+    # ---------- 作业 homework_answer_status 相关 --------
+    NEED2SUBMIT = '1'  # 待提交
+    SUBMITTED = '2'    # 已提交
+    NEED2REWORK = '3'  # 待重做 / 已打回
+    CHECKED = '4'      # 已批改
+    CORRECTED = '5'    # 已订正
+    NO_FEEDBACK = '6'  # 未反馈
+
+    EXPIRED_STATUS = {NEED2SUBMIT, NEED2REWORK}
+
+    # --------- 作业发布 homework_answer_check 相关 -------
+    IMAGE_MARK = '1'  # 大图批改

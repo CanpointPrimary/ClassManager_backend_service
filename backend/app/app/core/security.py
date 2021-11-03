@@ -21,10 +21,10 @@ BLOCK_SIZE = 16  # Bytes
 
 
 def create_access_token(
-        subject: Union[str, Any],
-        flag: str,
-        sub_sign: str,
-        expires_delta: timedelta = None
+    subject: Union[str, Any],
+    flag: str,
+    sub_sign: str,
+    expires_delta: timedelta = None
 ) -> str:
     """
     生成 JWT Token

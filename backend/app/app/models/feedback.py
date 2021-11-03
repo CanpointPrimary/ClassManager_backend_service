@@ -20,8 +20,9 @@ class Feedback(Base):
     """
     id = Column(BigInteger, primary_key=True, autoincrement=True, comment='主键')
     user_id = Column(BigInteger, nullable=False, comment='用户id')
-    category = Column(String(2), nullable=False, comment='反馈类型: 0-产品建议 其他-功能异常')
-    images = Column(String, comment='用户反馈图片')
+    category = Column(String(2), nullable=False, comment='反馈类型: '
+                                                         '1-产品建议 '
+                                                         '其他-功能异常')
     desc = Column(Text, nullable=False, comment='反馈内容描述')
 
     __idx_list__ = ('user_id', )

@@ -1,6 +1,9 @@
-from .crud_class import apply4class, class_, class_member, \
-    group, group_member
+from .crud_class import apply4class, class_, class_member, group, group_member
 from .crud_feedback import feedback
+from .crud_file import file_info, file_ref
+from .crud_homework import homework, homework_answer, homework_answer_status, \
+    homework_assign, homework_evaluate, homework_answer_check
+from .crud_message import message, message_content
 from .crud_page import homepage_menu, entrance_page
 from .crud_school import school
 from .crud_sys import region, sys_config

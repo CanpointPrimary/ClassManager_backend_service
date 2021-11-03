@@ -7,8 +7,7 @@ from app.constants.base import Const
 
 
 class Response(object):
-    """
-    错误响应类
+    """错误响应类
     该类的实例是不可变对象
     支持 星号解包 的方式传递实例变量
 
@@ -31,9 +30,7 @@ class Response(object):
 
 
 class RespError(Const):
-    """
-    错误响应相关常量或枚举值
-    """
+    """错误响应相关常量或枚举值"""
     SERVER_TOO_BUSY = Response(500, 'Server is too busy', '系统繁忙')
     INVALID_CODE = Response(400, 'Invalid code', '无效的code')
     USED_CODE = Response(403, 'Used code', '已使用过的code')
@@ -81,7 +78,7 @@ class RespError(Const):
     INVALID_UPLOADED_FILETYPE = Response(
         400, 'Invalid uploaded file type', '上传文件类型非法'
     )
-    UPLOADED_FILE_NOT_FOUND = Response(400, 'Upload file not found', '未找到上传文件')
+    FILE_NOT_FOUND = Response(400, 'Upload file not found', '文件不存在或已过期')
     INVALID_CLASS_CODE = Response(400, 'Class not exists', '无效的班级码')
     INVALID_SUBJECT = Response(400, 'Subject not exists', '无效的学科')
     INVALID_CLASS_APPLY = Response(400, 'Invalid class apply', '无效的入班申请')
@@ -101,3 +98,22 @@ class RespError(Const):
     REVIEWED_APPLY = Response(400, 'Apply has been reviewed', '该申请已被审核')
     GROUP_EXISTS = Response(400, 'Group already exists', '班级小组已存在')
     GROUP_NOT_FOUND = Response(400, 'Group not found', '不存在的班级小组')
+    VIDEO_DURATION_OUT_OF_LIMIT = Response(
+        400, 'Video duration out of limit', '视频时长超过限制'
+    )
+    UNRECOGNIZED_UPLOADED_FILETYPE = Response(
+        415, 'Unrecognized uploaded file type', '无法识别上传文件类型'
+    )
+    HOMEWORK_ASSIGNED = Response(
+        400, 'Homework already assigned on the date', '发布日期内存在发布过的作业'
+    )
+    EXPIRED_HOMEWORK = Response(
+        400, 'Homework submission deadline has passed', '已过作业提交截止时间'
+    )
+    CORRECTION_TIMES_OUT_OF_LIMIT = Response(
+        403, 'No more than two homework corrections are allowed', '作业订正次数不能超过2次'
+    )
+    REJECTION_TIMES_OUT_OF_LIMIT = Response(
+        403, 'No more than two homework rejections are allowed', '作业打回不能超过2次'
+    )
+    HOMEWORK_DELETED = Response(400, 'The homework has been deleted', '作业已被删除')
